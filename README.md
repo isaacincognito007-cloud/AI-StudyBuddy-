@@ -246,6 +246,6 @@ Six schemas in `/models`, each with `{ timestamps: true }`:
 
 ---
 
-## Demo Video
+## Demo Video https://youtu.be/N5lNC06rn7w
 
 ## Code Files https://drive.google.com/drive/folders/1mfJrGr63VDaF4zhXO7j9DIS_EWGJWjK0?usp=sharing
