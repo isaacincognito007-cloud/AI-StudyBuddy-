@@ -1,162 +1,121 @@
-const fs = require("fs");
-const Material = require("../models/Material");
-const { askGemini } = require("../utils/gemini");
+const fs = require("fs/promises");
+const path = require("path");
+const StudyMaterial = require("../../models/StudyMaterial");
 
-// Helper: read uploaded file text
-const readFileText = (filePath) => fs.readFileSync(filePath, "utf-8");
-
-// POST /api/materials/upload
-const uploadMaterial = async (req, res) => {
-  if (!req.file) return res.status(400).json({ message: "No file uploaded" });
-
-  const { title } = req.body;
-  const content = readFileText(req.file.path);
-
-  const material = await Material.create({
-    user: req.user.userId,
-    title: title || req.file.originalname,
-    content,
-    filename: req.file.originalname,
-  });
-
-  // Clean up file from disk after reading
-  fs.unlinkSync(req.file.path);
-
-  res.status(201).json({ message: "Material uploaded", material });
-};
-
-// GET /api/materials
-const getMaterials = async (req, res) => {
-  const filter = req.user.role === "admin" ? {} : { user: req.user.userId };
-  const materials = await Material.find(filter).select("-content -flashcards -quiz -studyPlan").sort("-createdAt");
-  res.json(materials);
-};
-
-// GET /api/materials/:id
-const getMaterial = async (req, res) => {
-  const material = await Material.findById(req.params.id);
-  if (!material) return res.status(404).json({ message: "Not found" });
-
-  // Students can only access their own
-  if (req.user.role !== "admin" && material.user.toString() !== req.user.userId) {
-    return res.status(403).json({ message: "Access denied" });
+// Only .txt/.md are read directly as text here to keep the reference
+// implementation dependency-free; PDF/DOC text extraction is a natural
+// next step (e.g. pdf-parse / mammoth) — see README "What's next".
+async function extractText(file) {
+  const ext = path.extname(file.originalname).toLowerCase();
+  if (ext === ".txt" || ext === ".md") {
+    return fs.readFile(file.path, "utf-8");
   }
+  return null; // caller falls back to req.body.content for unsupported types
+}
 
-  res.json(material);
-};
+async function uploadMaterial(req, res, next) {
+  try {
+    const { title, subject, content } = req.body;
+    let materialContent = content || "";
 
-// DELETE /api/materials/:id
-const deleteMaterial = async (req, res) => {
-  const material = await Material.findById(req.params.id);
-  if (!material) return res.status(404).json({ message: "Not found" });
+    if (req.file) {
+      const extracted = await extractText(req.file);
+      if (extracted !== null) materialContent = extracted;
+    }
 
-  if (req.user.role !== "admin" && material.user.toString() !== req.user.userId) {
-    return res.status(403).json({ message: "Access denied" });
+    if (!title || !materialContent.trim()) {
+      return res.status(400).json({
+        message: "A title and some content are required (paste text, or upload a .txt/.md file)",
+      });
+    }
+
+    const material = await StudyMaterial.create({
+      userId: req.user._id,
+      title,
+      subject,
+      content: materialContent,
+      fileName: req.file ? req.file.originalname : undefined,
+    });
+
+    res.status(201).json({ material });
+  } catch (err) {
+    next(err);
   }
+}
 
-  await material.deleteOne();
-  res.json({ message: "Deleted" });
-};
+async function listMaterials(req, res, next) {
+  try {
+    const { q, subject, page = 1, limit = 10 } = req.query;
+    const filter = { userId: req.user._id };
+    if (subject) filter.subject = subject;
+    if (q) filter.$text = { $search: q };
 
-// POST /api/materials/:id/summarize
-const summarize = async (req, res) => {
-  const material = await Material.findById(req.params.id);
-  if (!material) return res.status(404).json({ message: "Not found" });
+    const skip = (Number(page) - 1) * Number(limit);
+    const [materials, total] = await Promise.all([
+      StudyMaterial.find(filter).sort({ createdAt: -1 }).skip(skip).limit(Number(limit)),
+      StudyMaterial.countDocuments(filter),
+    ]);
 
-  const prompt = `Summarize the following study material clearly and concisely in bullet points:\n\n${material.content}`;
-  const summary = await askGemini(prompt);
+    res.json({
+      materials,
+      pagination: { page: Number(page), limit: Number(limit), total, pages: Math.ceil(total / limit) },
+    });
+  } catch (err) {
+    next(err);
+  }
+}
 
-  material.summary = summary;
-  await material.save();
+async function downloadMaterial(req, res, next) {
+  try {
+    const material = await StudyMaterial.findOne({ _id: req.params.id, userId: req.user._id });
+    if (!material) return res.status(404).json({ message: "Material not found" });
+    res.setHeader("Content-Disposition", `attachment; filename="${material.title}.txt"`);
+    res.type("text/plain").send(material.content);
+  } catch (err) {
+    next(err);
+  }
+}
 
-  res.json({ summary });
-};
+async function getMaterial(req, res, next) {
+  try {
+    const material = await StudyMaterial.findOne({ _id: req.params.id, userId: req.user._id });
+    if (!material) return res.status(404).json({ message: "Material not found" });
+    res.json({ material });
+  } catch (err) {
+    next(err);
+  }
+}
 
-// POST /api/materials/:id/flashcards
-const generateFlashcards = async (req, res) => {
-  const material = await Material.findById(req.params.id);
-  if (!material) return res.status(404).json({ message: "Not found" });
+async function updateMaterial(req, res, next) {
+  try {
+    const { title, subject, content } = req.body;
+    const material = await StudyMaterial.findOneAndUpdate(
+      { _id: req.params.id, userId: req.user._id },
+      { $set: { title, subject, content } },
+      { new: true, runValidators: true }
+    );
+    if (!material) return res.status(404).json({ message: "Material not found" });
+    res.json({ material });
+  } catch (err) {
+    next(err);
+  }
+}
 
-  const count = req.body.count || 5;
-
-  const prompt = `
-Create ${count} flashcards from the study material below.
-Return ONLY valid JSON in this format, no extra text:
-[{"question": "...", "answer": "..."}]
-
-Study material:
-${material.content}
-`;
-
-  const raw = await askGemini(prompt);
-  const clean = raw.replace(/```json|```/g, "").trim();
-  const flashcards = JSON.parse(clean);
-
-  material.flashcards = flashcards;
-  await material.save();
-
-  res.json({ flashcards });
-};
-
-// POST /api/materials/:id/quiz
-const generateQuiz = async (req, res) => {
-  const material = await Material.findById(req.params.id);
-  if (!material) return res.status(404).json({ message: "Not found" });
-
-  const count = req.body.count || 5;
-
-  const prompt = `
-Create ${count} multiple choice quiz questions from the study material below.
-Return ONLY valid JSON in this format, no extra text:
-[{"question": "...", "options": ["A", "B", "C", "D"], "answer": "A"}]
-
-Study material:
-${material.content}
-`;
-
-  const raw = await askGemini(prompt);
-  const clean = raw.replace(/```json|```/g, "").trim();
-  const quiz = JSON.parse(clean);
-
-  material.quiz = quiz;
-  await material.save();
-
-  res.json({ quiz });
-};
-
-// POST /api/materials/:id/study-plan
-const generateStudyPlan = async (req, res) => {
-  const material = await Material.findById(req.params.id);
-  if (!material) return res.status(404).json({ message: "Not found" });
-
-  const { goal, hoursPerDay, days } = req.body;
-
-  const prompt = `
-You are a study planner. Based on the study material below, create a personalized ${days || 7}-day study plan.
-Student's goal: ${goal || "Understand and retain the material"}
-Available study time: ${hoursPerDay || 2} hours per day.
-
-Return a clear day-by-day schedule with topics and activities.
-
-Study material:
-${material.content}
-`;
-
-  const studyPlan = await askGemini(prompt);
-
-  material.studyPlan = studyPlan;
-  await material.save();
-
-  res.json({ studyPlan });
-};
+async function deleteMaterial(req, res, next) {
+  try {
+    const material = await StudyMaterial.findOneAndDelete({ _id: req.params.id, userId: req.user._id });
+    if (!material) return res.status(404).json({ message: "Material not found" });
+    res.json({ message: "Material deleted" });
+  } catch (err) {
+    next(err);
+  }
+}
 
 module.exports = {
   uploadMaterial,
-  getMaterials,
+  listMaterials,
   getMaterial,
+  updateMaterial,
   deleteMaterial,
-  summarize,
-  generateFlashcards,
-  generateQuiz,
-  generateStudyPlan,
+  downloadMaterial,
 };

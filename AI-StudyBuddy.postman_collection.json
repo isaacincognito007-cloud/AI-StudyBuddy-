@@ -1,0 +1,333 @@
+{
+  "info": {
+    "name": "AI StudyBuddy Backend",
+    "description": "Full endpoint walkthrough for the AI StudyBuddy backend. Run requests top to bottom within each folder — Register/Login auto-save your token, and Upload Material auto-saves the materialId, so later requests just work.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:5000" },
+    { "key": "token", "value": "" },
+    { "key": "materialId", "value": "" },
+    { "key": "targetUserId", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "Health check",
+          "request": { "method": "GET", "url": "{{baseUrl}}/health" }
+        }
+      ]
+    },
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Register",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  const data = pm.response.json();",
+                  "  pm.collectionVariables.set('token', data.token);",
+                  "  console.log('Saved token from register');",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/auth/register",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Rahul Sharma\",\n  \"email\": \"rahul@example.com\",\n  \"password\": \"password123\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const data = pm.response.json();",
+                  "  pm.collectionVariables.set('token', data.token);",
+                  "  console.log('Saved token from login');",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/auth/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"rahul@example.com\",\n  \"password\": \"password123\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Get my profile",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": "{{baseUrl}}/api/auth/me"
+          }
+        },
+        {
+          "name": "Update my profile",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/api/auth/me",
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"Rahul S.\"\n}" }
+          }
+        },
+        {
+          "name": "Try a route with NO token (expect 401)",
+          "request": { "method": "GET", "url": "{{baseUrl}}/api/materials" }
+        }
+      ]
+    },
+    {
+      "name": "Study Materials",
+      "item": [
+        {
+          "name": "Upload material (JSON, no file)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  const data = pm.response.json();",
+                  "  pm.collectionVariables.set('materialId', data.material._id);",
+                  "  console.log('Saved materialId: ' + data.material._id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/api/materials/upload",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"DBMS Basics\",\n  \"subject\": \"Database Management\",\n  \"content\": \"A primary key uniquely identifies each row in a table and cannot be null. A foreign key is a field that references the primary key of another table, creating a relationship between the two tables. Normalization is the process of organizing data to reduce redundancy.\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Upload material (with a file)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": "{{baseUrl}}/api/materials/upload",
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "title", "value": "Uploaded Notes", "type": "text" },
+                { "key": "subject", "value": "General", "type": "text" },
+                { "key": "file", "type": "file", "src": "" }
+              ]
+            },
+            "description": "Set the file field to a .txt or .md file before sending — that's what the backend can extract text from directly."
+          }
+        },
+        {
+          "name": "List my materials",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": "{{baseUrl}}/api/materials?page=1&limit=10"
+          }
+        },
+        {
+          "name": "Search materials",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": "{{baseUrl}}/api/materials?q=primary+key"
+          }
+        },
+        {
+          "name": "Get one material",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": "{{baseUrl}}/api/materials/{{materialId}}"
+          }
+        },
+        {
+          "name": "Download material as text",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": "{{baseUrl}}/api/materials/{{materialId}}/download"
+          }
+        },
+        {
+          "name": "Update material",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/api/materials/{{materialId}}",
+            "body": { "mode": "raw", "raw": "{\n  \"subject\": \"Databases\"\n}" }
+          }
+        }
+      ]
+    },
+    {
+      "name": "AI Features",
+      "item": [
+        {
+          "name": "Generate summary",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": "{{baseUrl}}/api/materials/{{materialId}}/summarize"
+          }
+        },
+        {
+          "name": "Generate flashcards",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/api/ai/flashcards",
+            "body": { "mode": "raw", "raw": "{\n  \"materialId\": \"{{materialId}}\",\n  \"count\": 5\n}" }
+          }
+        },
+        {
+          "name": "Generate quiz",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/api/ai/quiz",
+            "body": { "mode": "raw", "raw": "{\n  \"materialId\": \"{{materialId}}\",\n  \"count\": 5\n}" }
+          }
+        },
+        {
+          "name": "Generate study plan",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/api/ai/study-plan",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"subjects\": \"DBMS, Operating Systems, Computer Networks\",\n  \"examDate\": \"2026-11-15\",\n  \"hoursPerDay\": \"3\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Ask a question (grounded in a material)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/api/ai/ask",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question\": \"What's the difference between a primary key and a foreign key?\",\n  \"materialId\": \"{{materialId}}\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Ask a question (general, no material)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/api/ai/ask",
+            "body": { "mode": "raw", "raw": "{\n  \"question\": \"Explain normalization in simple terms\"\n}" }
+          }
+        },
+        {
+          "name": "Injection attempt (expect 400)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/api/ai/ask",
+            "body": { "mode": "raw", "raw": "{\n  \"$where\": \"malicious\",\n  \"question\": \"test\"\n}" }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Admin (requires manually promoting your user first — see TESTING.md)",
+      "item": [
+        {
+          "name": "List all users",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": "{{baseUrl}}/api/admin/users"
+          }
+        },
+        {
+          "name": "Analytics snapshot",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": "{{baseUrl}}/api/admin/analytics"
+          }
+        },
+        {
+          "name": "List all materials (every user)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": "{{baseUrl}}/api/admin/materials"
+          }
+        },
+        {
+          "name": "Update a user's role",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/api/admin/users/{{targetUserId}}/role",
+            "body": { "mode": "raw", "raw": "{\n  \"role\": \"student\"\n}" },
+            "description": "Set targetUserId in the collection variables first."
+          }
+        }
+      ]
+    }
+  ]
+}
